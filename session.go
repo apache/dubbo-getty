@@ -580,7 +580,7 @@ func (s *session) handleTCPPackage() error {
 		pkg      interface{}
 	)
 
-	buf = make([]byte, maxReadBufLen)
+	buf = make([]byte, s.maxMsgLen)
 	pktBuf = new(bytes.Buffer)
 	conn = s.Connection.(*gettyTCPConn)
 	for {
