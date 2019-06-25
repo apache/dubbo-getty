@@ -20,6 +20,7 @@ import (
 )
 
 import (
+	gstime "github.com/dubbogo/gostd/time"
 	"github.com/gorilla/websocket"
 	perrors "github.com/pkg/errors"
 )
@@ -41,6 +42,14 @@ const (
 /////////////////////////////////////////
 // session
 /////////////////////////////////////////
+
+var (
+	wheel = gstime.NewWheel(gstime.TimeMillisecondDuration(100), 1200) // wheel longest span is 2 minute
+)
+
+func GetTimeWheel() *gstime.Wheel {
+	return wheel
+}
 
 // getty base session
 type session struct {
@@ -427,10 +436,9 @@ func (s *session) run() {
 
 func (s *session) handleLoop() {
 	var (
-		wsFlag bool
-		wsConn *gettyWSConn
-		// start  time.Time
-		counter CountWatch
+		wsFlag  bool
+		wsConn  *gettyWSConn
+		counter gstime.CountWatch
 	)
 
 	defer func() {
@@ -465,8 +473,7 @@ LOOP:
 				}
 			}
 
-		case <-time.After(s.period):
-
+		case <-wheel.After(s.period):
 			if wsFlag {
 				err := wsConn.writePing()
 				if err != nil {
@@ -474,7 +481,6 @@ LOOP:
 				}
 			}
 			s.listener.OnCron(s)
-
 		}
 	}
 }
