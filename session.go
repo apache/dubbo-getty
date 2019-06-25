@@ -25,11 +25,11 @@ import (
 )
 
 const (
-	maxReadBufLen         = 4 * 1024
-	netIOTimeout          = 1e9      // 1s
-	period                = 60 * 1e9 // 1 minute
-	pendingDuration       = 3e9
-	defaultQLen           = 1024
+	maxReadBufLen   = 4 * 1024
+	netIOTimeout    = 1e9      // 1s
+	period          = 60 * 1e9 // 1 minute
+	pendingDuration = 3e9
+
 	defaultSessionName    = "session"
 	defaultTCPSessionName = "tcp-session"
 	defaultUDPSessionName = "udp-session"
@@ -55,10 +55,6 @@ type session struct {
 	// codec
 	reader Reader // @reader should be nil when @conn is a gettyWSConn object.
 	writer Writer
-
-	// read & write
-	rQ chan interface{}
-	wQ chan interface{}
 
 	// handle logic
 	maxMsgLen int32
@@ -265,30 +261,6 @@ func (s *session) SetCronPeriod(period int) {
 	s.period = time.Duration(period) * time.Millisecond
 }
 
-// set @session's read queue size
-func (s *session) SetRQLen(readQLen int) {
-	if readQLen < 1 {
-		panic("@readQLen < 1")
-	}
-
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	s.rQ = make(chan interface{}, readQLen)
-	log.Debug("%s, [session.SetRQLen] rQ{len:%d, cap:%d}", s.Stat(), len(s.rQ), cap(s.rQ))
-}
-
-// set @session's Write queue size
-func (s *session) SetWQLen(writeQLen int) {
-	if writeQLen < 1 {
-		panic("@writeQLen < 1")
-	}
-
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	s.wQ = make(chan interface{}, writeQLen)
-	log.Debug("%s, [session.SetWQLen] wQ{len:%d, cap:%d}", s.Stat(), len(s.wQ), cap(s.wQ))
-}
-
 // set maximum wait time when session got error or got exit signal
 func (s *session) SetWaitTime(waitTime time.Duration) {
 	if waitTime < 1 {
@@ -348,7 +320,7 @@ func (s *session) sessionToken() string {
 		s.name, s.EndPoint().EndPointType(), s.ID(), s.LocalAddr(), s.RemoteAddr())
 }
 
-func (s *session) WritePkg(pkg interface{}, timeout time.Duration) error {
+func (s *session) WritePkg(pkg interface{}, _ time.Duration) error {
 	if s.IsClosed() {
 		return ErrSessionClosed
 	}
@@ -362,24 +334,12 @@ func (s *session) WritePkg(pkg interface{}, timeout time.Duration) error {
 		}
 	}()
 
-	var err error
-	if timeout <= 0 {
-		if err = s.writer.Write(s, pkg); err != nil {
-			s.incWritePkgNum()
-			// gxlog.CError("after incWritePkgNum, ss:%s", s.Stat())
-		}
-		return perrors.WithStack(err)
+	err := s.writer.Write(s, pkg)
+	if err != nil {
+		s.incWritePkgNum()
+		// gxlog.CError("after incWritePkgNum, ss:%s", s.Stat())
 	}
-	select {
-	case s.wQ <- pkg:
-		break // for possible gen a new pkg
-
-	case <-time.After(timeout):
-		log.Warnf("%s, [session.WritePkg] wQ{len:%d, cap:%d}", s.Stat(), len(s.wQ), cap(s.wQ))
-		return ErrSessionBlocked
-	}
-
-	return nil
+	return perrors.WithStack(err)
 }
 
 // for codecs
@@ -452,14 +412,6 @@ func (s *session) run() {
 		panic(errStr)
 	}
 
-	if s.wQ == nil {
-		s.wQ = make(chan interface{}, defaultQLen)
-	}
-
-	if s.rQ == nil && s.tPool == nil {
-		s.rQ = make(chan interface{}, defaultQLen)
-	}
-
 	// call session opened
 	s.UpdateActive()
 	if err := s.listener.OnOpen(s); err != nil {
@@ -475,14 +427,10 @@ func (s *session) run() {
 
 func (s *session) handleLoop() {
 	var (
-		err    error
-		flag   bool
 		wsFlag bool
 		wsConn *gettyWSConn
 		// start  time.Time
 		counter CountWatch
-		inPkg   interface{}
-		outPkg  interface{}
 	)
 
 	defer func() {
@@ -501,7 +449,6 @@ func (s *session) handleLoop() {
 		s.gc()
 	}()
 
-	flag = true // do not do any read/Write/cron operation while got Write error
 	wsConn, wsFlag = s.Connection.(*gettyWSConn)
 LOOP:
 	for {
@@ -511,63 +458,39 @@ LOOP:
 		case <-s.done:
 			// this case branch assure the (session)handleLoop gr will exit before (session)handlePackage gr.
 			if atomic.LoadInt32(&(s.grNum)) == 1 { // make sure @(session)handlePackage goroutine has been closed.
-				if len(s.rQ) == 0 && len(s.wQ) == 0 {
-					log.Infof("%s, [session.handleLoop] got done signal. Both rQ and wQ are nil.", s.Stat())
-					break LOOP
-				}
 				counter.Start()
-				// if time.Since(start).Nanoseconds() >= s.wait.Nanoseconds() {
 				if counter.Count() > s.wait.Nanoseconds() {
 					log.Infof("%s, [session.handleLoop] got done signal ", s.Stat())
 					break LOOP
 				}
 			}
 
-		case inPkg = <-s.rQ:
-			// read the s.rQ and assure (session)handlePackage gr will not block by (session)rQ.
-			if flag {
-				log.Debugf("%#v <-s.rQ", inPkg)
-				pkg := inPkg
-				// go s.listener.OnMessage(s, pkg)
-				s.listener.OnMessage(s, pkg)
-				s.incReadPkgNum()
-			} else {
-				log.Infof("[session.handleLoop] drop readin package{%#v}", inPkg)
-			}
-
-		case outPkg = <-s.wQ:
-			if flag {
-				if err = s.writer.Write(s, outPkg); err != nil {
-					log.Errorf("%s, [session.handleLoop] = error:%+v", s.sessionToken(), err)
-					s.stop()
-					flag = false
-					// break LOOP
-				}
-				s.incWritePkgNum()
-			} else {
-				log.Infof("[session.handleLoop] drop writeout package{%#v}", outPkg)
-			}
-
 		case <-time.After(s.period):
-			if flag {
-				if wsFlag {
-					err := wsConn.writePing()
-					if err != nil {
-						log.Warnf("wsConn.writePing() = error{%s}", err)
-					}
+
+			if wsFlag {
+				err := wsConn.writePing()
+				if err != nil {
+					log.Warnf("wsConn.writePing() = error{%s}", err)
 				}
-				s.listener.OnCron(s)
 			}
+			s.listener.OnCron(s)
+
 		}
 	}
 }
 
 func (s *session) addTask(pkg interface{}) {
-	if s.tPool != nil {
-		s.tPool.AddTask(task{session: s, pkg: pkg})
-	} else {
-		s.rQ <- pkg
+	f := func() {
+		s.listener.OnMessage(s, pkg)
+		s.incReadPkgNum()
 	}
+
+	if s.tPool != nil {
+		s.tPool.AddTask(f)
+		return
+	}
+
+	f()
 }
 
 func (s *session) handlePackage() {
@@ -836,14 +759,6 @@ func (s *session) gc() {
 	s.lock.Lock()
 	if s.attrs != nil {
 		s.attrs = nil
-		if s.wQ != nil {
-			close(s.wQ)
-			s.wQ = nil
-		}
-		if s.rQ != nil {
-			close(s.rQ)
-			s.rQ = nil
-		}
 		s.Connection.close((int)((int64)(s.wait)))
 	}
 	s.lock.Unlock()

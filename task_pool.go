@@ -11,10 +11,7 @@ const (
 )
 
 // task t
-type task struct {
-	session *session
-	pkg     interface{}
-}
+type task func()
 
 // task pool: manage task ts
 type TaskPool struct {
@@ -83,7 +80,7 @@ func (p *TaskPool) run(id int, q chan task) {
 
 		case t, ok = <-q:
 			if ok {
-				t.session.listener.OnMessage(t.session, t.pkg)
+				t()
 			}
 		}
 	}
