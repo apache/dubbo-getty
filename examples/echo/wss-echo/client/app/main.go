@@ -36,7 +36,7 @@ import (
 	"github.com/AlexStocks/goext/log"
 	"github.com/AlexStocks/goext/net"
 	"github.com/AlexStocks/goext/time"
-	log "github.com/AlexStocks/log4go"
+	log "github.com/apache/dubbo-go/common/logger"
 	getty "github.com/apache/dubbo-getty"
 )
 
