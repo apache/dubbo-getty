@@ -34,7 +34,7 @@ import (
 	gxlog "github.com/AlexStocks/goext/log"
 	gxnet "github.com/AlexStocks/goext/net"
 	gxtime "github.com/AlexStocks/goext/time"
-	log "github.com/AlexStocks/log4go"
+	log "github.com/apache/dubbo-go/common/logger"
 	getty "github.com/apache/dubbo-getty"
 )
 
