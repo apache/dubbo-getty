@@ -5,7 +5,7 @@ go 1.14
 require (
 	github.com/AlexStocks/getty v1.3.0
 	github.com/AlexStocks/goext v0.3.3
-	github.com/AlexStocks/log4go v1.0.6
+	github.com/apache/dubbo-go/common/logger v1
 	github.com/dubbogo/gost v1.11.20
 	github.com/golang/snappy v0.0.1
 	github.com/gorilla/websocket v1.4.2
