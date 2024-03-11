@@ -20,19 +20,19 @@ package getty
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
 	"runtime"
 	"sync"
 	"time"
-)
 
-import (
 	gxbytes "github.com/dubbogo/gost/bytes"
-	gxcontext "github.com/dubbogo/gost/context"
-	gxtime "github.com/dubbogo/gost/time"
 
+	gxcontext "github.com/dubbogo/gost/context"
+
+	gxtime "github.com/dubbogo/gost/time"
 	"github.com/gorilla/websocket"
 
 	perrors "github.com/pkg/errors"
@@ -46,8 +46,9 @@ const (
 	period          = 60 * 1e9 // 1 minute
 	pendingDuration = 3e9
 	// MaxWheelTimeSpan 900s, 15 minute
-	MaxWheelTimeSpan = 900e9
-	maxPacketLen     = 16 * 1024
+	MaxWheelTimeSpan           = 900e9
+	maxPacketLen               = 16 * 1024
+	defaultTLSHandshakeTimeout = time.Second * 3
 
 	defaultSessionName    = "session"
 	defaultTCPSessionName = "tcp-session"
@@ -631,6 +632,16 @@ func (s *session) handleTCPPackage() error {
 	pktBuf = gxbytes.NewBuffer(nil)
 
 	conn = s.Connection.(*gettyTCPConn)
+	if tlsConn, ok := conn.conn.(*tls.Conn); ok {
+		tlsHandshaketime := defaultTLSHandshakeTimeout
+		if s.ReadTimeout() > 0 {
+			tlsHandshaketime = s.ReadTimeout()
+		}
+		ctx, _ := context.WithTimeout(context.Background(), tlsHandshaketime)
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			return err
+		}
+	}
 	for {
 		if s.IsClosed() {
 			err = nil
