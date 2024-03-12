@@ -1,6 +1,6 @@
 module github.com/apache/dubbo-getty
 
-go 1.14
+go 1.20
 
 require (
 	github.com/dubbogo/gost v1.13.1
