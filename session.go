@@ -27,18 +27,19 @@ import (
 	"runtime"
 	"sync"
 	"time"
-
+)
+import (
 	gxbytes "github.com/dubbogo/gost/bytes"
-
 	gxcontext "github.com/dubbogo/gost/context"
-
 	gxtime "github.com/dubbogo/gost/time"
+
 	"github.com/gorilla/websocket"
 
 	perrors "github.com/pkg/errors"
 
 	uatomic "go.uber.org/atomic"
 )
+
 
 const (
 	maxReadBufLen   = 4 * 1024
@@ -639,7 +640,8 @@ func (s *session) handleTCPPackage() error {
 		}
 		ctx, _ := context.WithTimeout(context.Background(), tlsHandshaketime)
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
-			return err
+			log.Errorf("[tlsConn.HandshakeContext] = error:%+v", err)
+			return perrors.Wrap(err, "tlsConn.HandshakeContext")
 		}
 	}
 	for {
