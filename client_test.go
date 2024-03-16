@@ -158,7 +158,10 @@ func TestTCPClient(t *testing.T) {
 	assert.Equal(t, beforeWritePkgNum, conn.writePkgNum)
 	assert.Equal(t, beforeWriteBytes, conn.writeBytes)
 	ss.SetCompressType(CompressSnappy)
-	l, err = ss.WriteBytesArray(pkgs...)
+	// net.Buffer.WriteTo would consume the memory of pkgs, we should allocate another one for testing
+	var anotherPkgs [][]byte
+	anotherPkgs = append(anotherPkgs, []byte("hello"), []byte("hello"))
+	l, err = ss.WriteBytesArray(anotherPkgs...)
 	assert.Nil(t, err)
 	assert.True(t, l == 10)
 	beforeWritePkgNum.Add(2)

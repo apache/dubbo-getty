@@ -22,8 +22,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -281,9 +281,9 @@ func (c *client) dialWSS() Session {
 	}
 
 	if c.cert != "" {
-		certPEMBlock, err := ioutil.ReadFile(c.cert)
+		certPEMBlock, err := os.ReadFile(c.cert)
 		if err != nil {
-			panic(fmt.Sprintf("ioutil.ReadFile(cert:%s) = error:%+v", c.cert, perrors.WithStack(err)))
+			panic(fmt.Sprintf("os.ReadFile(cert:%s) = error:%+v", c.cert, perrors.WithStack(err)))
 		}
 
 		var cert tls.Certificate
