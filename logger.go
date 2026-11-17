@@ -18,6 +18,10 @@
 package getty
 
 import (
+	"sync/atomic"
+)
+
+import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -58,8 +62,43 @@ const (
 	LoggerLevelFatal = LoggerLevel(zapcore.FatalLevel)
 )
 
+// loggerHolder atomically stores the process logger so SetLogger can
+// be called without racing in-flight log calls.
+type loggerHolder struct {
+	inner atomic.Value // Logger
+}
+
+type loggerBox struct {
+	logger Logger
+}
+
+func (l *loggerHolder) current() Logger {
+	v := l.inner.Load()
+	if v == nil {
+		return nil
+	}
+	return v.(loggerBox).logger
+}
+
+func (l *loggerHolder) Info(args ...any)  { l.current().Info(args...) }
+func (l *loggerHolder) Warn(args ...any)  { l.current().Warn(args...) }
+func (l *loggerHolder) Error(args ...any) { l.current().Error(args...) }
+func (l *loggerHolder) Debug(args ...any) { l.current().Debug(args...) }
+func (l *loggerHolder) Infof(fmt string, args ...any) {
+	l.current().Infof(fmt, args...)
+}
+func (l *loggerHolder) Warnf(fmt string, args ...any) {
+	l.current().Warnf(fmt, args...)
+}
+func (l *loggerHolder) Errorf(fmt string, args ...any) {
+	l.current().Errorf(fmt, args...)
+}
+func (l *loggerHolder) Debugf(fmt string, args ...any) {
+	l.current().Debugf(fmt, args...)
+}
+
 var (
-	log       Logger
+	log       = &loggerHolder{}
 	zapLogger *zap.Logger
 
 	zapLoggerConfig        = zap.NewDevelopmentConfig()
@@ -80,7 +119,7 @@ var (
 func init() {
 	zapLoggerConfig.EncoderConfig = zapLoggerEncoderConfig
 	zapLogger, _ = zapLoggerConfig.Build()
-	log = zapLogger.Sugar()
+	log.inner.Store(loggerBox{Logger(zapLogger.Sugar())})
 
 	// todo: flushes buffer when redirect log to file.
 	// var exitSignal = make(chan os.Signal)
@@ -99,12 +138,15 @@ func init() {
 
 // SetLogger customize yourself logger.
 func SetLogger(logger Logger) {
-	log = logger
+	if logger == nil {
+		return
+	}
+	log.inner.Store(loggerBox{logger})
 }
 
 // GetLogger get getty logger
 func GetLogger() Logger {
-	return log
+	return log.current()
 }
 
 // SetLoggerLevel set logger level
@@ -115,7 +157,7 @@ func SetLoggerLevel(level LoggerLevel) error {
 	if err != nil {
 		return err
 	}
-	log = zapLogger.Sugar()
+	log.inner.Store(loggerBox{Logger(zapLogger.Sugar())})
 	return nil
 }
 
@@ -129,6 +171,6 @@ func SetLoggerCallerDisable() error {
 	if err != nil {
 		return err
 	}
-	log = zapLogger.Sugar()
+	log.inner.Store(loggerBox{Logger(zapLogger.Sugar())})
 	return nil
 }

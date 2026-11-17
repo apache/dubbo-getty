@@ -568,7 +568,7 @@ func (s *session) addTask(pkg any) {
 	f := func() {
 		// If the session is closed, there is no need to perform CPU-intensive operations.
 		if s.IsClosed() {
-			log.Errorf("[Id:%d, name=%s, endpoint=%s] Session is closed", s.ID(), s.name, s.EndPoint())
+			log.Errorf("[Id:%d, name=%s, session=%s] Session is closed", s.ID(), s.name, s.sessionToken())
 			return
 		}
 		s.listener.OnMessage(s, pkg)
