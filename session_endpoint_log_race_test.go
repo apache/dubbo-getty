@@ -28,14 +28,14 @@ import (
 // is exercised) but does not write them. It is only a test sink.
 type fmtDiscardLogger struct{}
 
-func (fmtDiscardLogger) Info(args ...interface{})             { _ = fmt.Sprint(args...) }
-func (fmtDiscardLogger) Warn(args ...interface{})             { _ = fmt.Sprint(args...) }
-func (fmtDiscardLogger) Error(args ...interface{})            { _ = fmt.Sprint(args...) }
-func (fmtDiscardLogger) Debug(args ...interface{})            { _ = fmt.Sprint(args...) }
-func (fmtDiscardLogger) Infof(f string, args ...interface{})  { _ = fmt.Sprintf(f, args...) }
-func (fmtDiscardLogger) Warnf(f string, args ...interface{})  { _ = fmt.Sprintf(f, args...) }
-func (fmtDiscardLogger) Errorf(f string, args ...interface{}) { _ = fmt.Sprintf(f, args...) }
-func (fmtDiscardLogger) Debugf(f string, args ...interface{}) { _ = fmt.Sprintf(f, args...) }
+func (fmtDiscardLogger) Info(args ...any)             { _ = fmt.Sprint(args...) }
+func (fmtDiscardLogger) Warn(args ...any)             { _ = fmt.Sprint(args...) }
+func (fmtDiscardLogger) Error(args ...any)            { _ = fmt.Sprint(args...) }
+func (fmtDiscardLogger) Debug(args ...any)            { _ = fmt.Sprint(args...) }
+func (fmtDiscardLogger) Infof(f string, args ...any)  { _ = fmt.Sprintf(f, args...) }
+func (fmtDiscardLogger) Warnf(f string, args ...any)  { _ = fmt.Sprintf(f, args...) }
+func (fmtDiscardLogger) Errorf(f string, args ...any) { _ = fmt.Sprintf(f, args...) }
+func (fmtDiscardLogger) Debugf(f string, args ...any) { _ = fmt.Sprintf(f, args...) }
 
 func mutateClientMap(c *client, s Session, n int) {
 	for i := 0; i < n; i++ {
