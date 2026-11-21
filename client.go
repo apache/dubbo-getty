@@ -178,7 +178,7 @@ func (c *client) dialTCP() Session {
 		return newTCPSession(conn, c)
 	}
 
-	log.Infof("net.DialTimeout(addr:%s, timeout:%v) = error:%+v", c.addr, connectTimeout, perrors.WithStack(err))
+	GetLogger().Infof("net.DialTimeout(addr:%s, timeout:%v) = error:%+v", c.addr, connectTimeout, perrors.WithStack(err))
 	return nil
 }
 
@@ -207,28 +207,28 @@ func (c *client) dialUDP() Session {
 		err = errSelfConnect
 	}
 	if err != nil {
-		log.Warnf("net.DialUDP(addr:%s) = error:%+v", c.addr, perrors.WithStack(err))
+		GetLogger().Warnf("net.DialUDP(addr:%s) = error:%+v", c.addr, perrors.WithStack(err))
 		return nil
 	}
 
 	// check connection alive by write/read action
 	if err := conn.SetWriteDeadline(time.Now().Add(1e9)); err != nil {
-		log.Warnf("failed to set write deadline: %+v", err)
+		GetLogger().Warnf("failed to set write deadline: %+v", err)
 	}
 	if length, err = conn.Write(connectPingPackage[:]); err != nil {
 		_ = conn.Close()
-		log.Warnf("conn.Write(%s) = {length:%d, err:%+v}", string(connectPingPackage), length, perrors.WithStack(err))
+		GetLogger().Warnf("conn.Write(%s) = {length:%d, err:%+v}", string(connectPingPackage), length, perrors.WithStack(err))
 		return nil
 	}
 	if err := conn.SetReadDeadline(time.Now().Add(1e9)); err != nil {
-		log.Warnf("failed to set read deadline: %+v", err)
+		GetLogger().Warnf("failed to set read deadline: %+v", err)
 	}
 	length, err = conn.Read(buf)
 	if netErr, ok := perrors.Cause(err).(net.Error); ok && netErr.Timeout() {
 		err = nil
 	}
 	if err != nil {
-		log.Infof("conn{%#v}.Read() = {length:%d, err:%+v}", conn, length, perrors.WithStack(err))
+		GetLogger().Infof("conn{%#v}.Read() = {length:%d, err:%+v}", conn, length, perrors.WithStack(err))
 		_ = conn.Close()
 		return nil
 	}
@@ -261,7 +261,7 @@ func (c *client) dialWS() Session {
 		return ss
 	}
 
-	log.Infof("websocket.dialer.Dial(addr:%s) = error:%+v", c.addr, perrors.WithStack(err))
+	GetLogger().Infof("websocket.dialer.Dial(addr:%s) = error:%+v", c.addr, perrors.WithStack(err))
 	return nil
 }
 
@@ -337,7 +337,7 @@ func (c *client) dialWSS() Session {
 		return ss
 	}
 
-	log.Infof("websocket.dialer.Dial(addr:%s) = error:%+v", c.addr, perrors.WithStack(err))
+	GetLogger().Infof("websocket.dialer.Dial(addr:%s) = error:%+v", c.addr, perrors.WithStack(err))
 	return nil
 }
 
@@ -483,7 +483,7 @@ func (c *client) reConnect() {
 	connPoolSize := c.number
 	for reconnectAttempts < maxReconnectAttempts {
 		if c.IsClosed() {
-			log.Warnf("client{peer:%s} goroutine exit now.", c.addr)
+			GetLogger().Warnf("client{peer:%s} goroutine exit now.", c.addr)
 			return
 		}
 

@@ -343,7 +343,7 @@ func (t *gettyTCPConn) Send(pkg any) (int, error) {
 			t.writeBytes.Add((uint32)(lg))
 			t.writePkgNum.Add((uint32)(len(buffers)))
 		}
-		log.Debugf("localAddr: %s, remoteAddr:%s, now:%s, length:%d, err:%s",
+		GetLogger().Debugf("localAddr: %s, remoteAddr:%s, now:%s, length:%d, err:%s",
 			conn.LocalAddr(), conn.RemoteAddr(), currentTime, length, err)
 		return int(lg), perrors.WithStack(err)
 	}
@@ -354,7 +354,7 @@ func (t *gettyTCPConn) Send(pkg any) (int, error) {
 			t.writeBytes.Add((uint32)(len(p)))
 			t.writePkgNum.Add(1)
 		}
-		log.Debugf("localAddr: %s, remoteAddr:%s, now:%s, length:%d, err:%v",
+		GetLogger().Debugf("localAddr: %s, remoteAddr:%s, now:%s, length:%d, err:%v",
 			conn.LocalAddr(), conn.RemoteAddr(), currentTime, length, err)
 		return length, perrors.WithStack(err)
 	}
@@ -377,7 +377,7 @@ func (t *gettyTCPConn) CloseConn(waitSec int) {
 	if conn != nil {
 		if sw, ok := writer.(*snappy.Writer); ok {
 			if err := sw.Close(); err != nil {
-				log.Errorf("snappy.Writer.Close() = error:%+v", err)
+				GetLogger().Errorf("snappy.Writer.Close() = error:%+v", err)
 			}
 		}
 		if tcpConn, ok := conn.(*net.TCPConn); ok {
@@ -460,7 +460,7 @@ func (u *gettyUDPConn) recv(p []byte) (int, *net.UDPAddr, error) {
 	}
 
 	length, addr, err := u.conn.ReadFromUDP(p) // connected udp also can get return @addr
-	log.Debugf("ReadFromUDP(p:%d) = {length:%d, peerAddr:%s, error:%v}", len(p), length, addr, err)
+	GetLogger().Debugf("ReadFromUDP(p:%d) = {length:%d, peerAddr:%s, error:%v}", len(p), length, addr, err)
 	if err == nil {
 		u.readBytes.Add(uint32(length))
 	}
@@ -507,7 +507,7 @@ func (u *gettyUDPConn) Send(udpCtx any) (int, error) {
 		u.writeBytes.Add((uint32)(len(buf)))
 		u.writePkgNum.Add(1)
 	}
-	log.Debugf("WriteMsgUDP(peerAddr:%s) = {length:%d, error:%v}", peerAddr, length, err)
+	GetLogger().Debugf("WriteMsgUDP(peerAddr:%s) = {length:%d, error:%v}", peerAddr, length, err)
 
 	return length, perrors.WithStack(err)
 }
@@ -608,7 +608,7 @@ func (w *gettyWSConn) recv() ([]byte, error) {
 		w.readBytes.Add((uint32)(len(b)))
 	} else {
 		if websocket.IsUnexpectedCloseError(e, websocket.CloseGoingAway) {
-			log.Warnf("websocket unexpected CloseConn error: %v", e)
+			GetLogger().Warnf("websocket unexpected CloseConn error: %v", e)
 		}
 	}
 

@@ -63,7 +63,9 @@ const (
 )
 
 // loggerHolder atomically stores the process logger so SetLogger can
-// be called without racing in-flight log calls.
+// be called without racing in-flight log calls. It deliberately does not
+// implement Logger: call sites log through GetLogger().Xxx(...) so the
+// caller frame recorded by the underlying logger stays accurate.
 type loggerHolder struct {
 	inner atomic.Value // Logger
 }
@@ -80,26 +82,9 @@ func (l *loggerHolder) current() Logger {
 	return v.(loggerBox).logger
 }
 
-func (l *loggerHolder) Info(args ...any)  { l.current().Info(args...) }
-func (l *loggerHolder) Warn(args ...any)  { l.current().Warn(args...) }
-func (l *loggerHolder) Error(args ...any) { l.current().Error(args...) }
-func (l *loggerHolder) Debug(args ...any) { l.current().Debug(args...) }
-func (l *loggerHolder) Infof(fmt string, args ...any) {
-	l.current().Infof(fmt, args...)
-}
-func (l *loggerHolder) Warnf(fmt string, args ...any) {
-	l.current().Warnf(fmt, args...)
-}
-func (l *loggerHolder) Errorf(fmt string, args ...any) {
-	l.current().Errorf(fmt, args...)
-}
-func (l *loggerHolder) Debugf(fmt string, args ...any) {
-	l.current().Debugf(fmt, args...)
-}
-
 var (
-	log       = &loggerHolder{}
-	zapLogger *zap.Logger
+	loggerStore = &loggerHolder{}
+	zapLogger   *zap.Logger
 
 	zapLoggerConfig        = zap.NewDevelopmentConfig()
 	zapLoggerEncoderConfig = zapcore.EncoderConfig{
@@ -119,7 +104,7 @@ var (
 func init() {
 	zapLoggerConfig.EncoderConfig = zapLoggerEncoderConfig
 	zapLogger, _ = zapLoggerConfig.Build()
-	log.inner.Store(loggerBox{Logger(zapLogger.Sugar())})
+	loggerStore.inner.Store(loggerBox{Logger(zapLogger.Sugar())})
 
 	// todo: flushes buffer when redirect log to file.
 	// var exitSignal = make(chan os.Signal)
@@ -141,12 +126,12 @@ func SetLogger(logger Logger) {
 	if logger == nil {
 		return
 	}
-	log.inner.Store(loggerBox{logger})
+	loggerStore.inner.Store(loggerBox{logger})
 }
 
 // GetLogger get getty logger
 func GetLogger() Logger {
-	return log.current()
+	return loggerStore.current()
 }
 
 // SetLoggerLevel set logger level
@@ -157,7 +142,7 @@ func SetLoggerLevel(level LoggerLevel) error {
 	if err != nil {
 		return err
 	}
-	log.inner.Store(loggerBox{Logger(zapLogger.Sugar())})
+	loggerStore.inner.Store(loggerBox{Logger(zapLogger.Sugar())})
 	return nil
 }
 
@@ -171,6 +156,6 @@ func SetLoggerCallerDisable() error {
 	if err != nil {
 		return err
 	}
-	log.inner.Store(loggerBox{Logger(zapLogger.Sugar())})
+	loggerStore.inner.Store(loggerBox{Logger(zapLogger.Sugar())})
 	return nil
 }

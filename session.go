@@ -383,13 +383,13 @@ func (s *session) WritePkg(pkg any, timeout time.Duration) (pkgBytesLenth int, s
 			rBuf := make([]byte, size)
 			rBuf = rBuf[:runtime.Stack(rBuf, false)]
 			err = perrors.WithStack(fmt.Errorf("[session.WritePkg] panic session %s: err=%v\n%s", s.sessionToken(), r, rBuf))
-			log.Error(err)
+			GetLogger().Error(err)
 		}
 	}()
 
 	pkgBytes, err := s.writer.Write(s, pkg)
 	if err != nil {
-		log.Warnf("%s, [session.WritePkg] session.writer.Write(@pkg:%#v) = error:%+v", s.Stat(), pkg, err)
+		GetLogger().Warnf("%s, [session.WritePkg] session.writer.Write(@pkg:%#v) = error:%+v", s.Stat(), pkg, err)
 		return len(pkgBytes), 0, perrors.WithStack(err)
 	}
 	var udpCtxPtr *UDPContext
@@ -411,7 +411,7 @@ func (s *session) WritePkg(pkg any, timeout time.Duration) (pkgBytesLenth int, s
 	}
 	successCount, err = s.Connection.Send(pkg)
 	if err != nil {
-		log.Warnf("%s, [session.WritePkg] @s.Connection.Write(pkg:%#v) = err:%+v", s.Stat(), pkg, err)
+		GetLogger().Warnf("%s, [session.WritePkg] @s.Connection.Write(pkg:%#v) = err:%+v", s.Stat(), pkg, err)
 		return len(pkgBytes), successCount, perrors.WithStack(err)
 	}
 	return len(pkgBytes), successCount, nil
@@ -522,7 +522,7 @@ func heartbeat(_ gxtime.TimerID, _ time.Time, arg any) error {
 		if wsFlag {
 			err := wsConn.writePing()
 			if err != nil {
-				log.Warnf("wsConn.writePing() = error:%+v", perrors.WithStack(err))
+				GetLogger().Warnf("wsConn.writePing() = error:%+v", perrors.WithStack(err))
 			}
 		}
 
@@ -543,14 +543,14 @@ func (s *session) run() {
 	if s.Connection == nil || s.listener == nil || s.writer == nil {
 		errStr := fmt.Sprintf("session{name:%s, conn:%#v, listener:%#v, writer:%#v}",
 			s.name, s.Connection, s.listener, s.writer)
-		log.Error(errStr)
+		GetLogger().Error(errStr)
 		panic(errStr)
 	}
 
 	// call session opened
 	s.UpdateActive()
 	if err := s.listener.OnOpen(s); err != nil {
-		log.Errorf("[OnOpen] session %s, error: %#v", s.Stat(), err)
+		GetLogger().Errorf("[OnOpen] session %s, error: %#v", s.Stat(), err)
 		s.Close()
 		return
 	}
@@ -568,7 +568,7 @@ func (s *session) addTask(pkg any) {
 	f := func() {
 		// If the session is closed, there is no need to perform CPU-intensive operations.
 		if s.IsClosed() {
-			log.Errorf("[Id:%d, name=%s, session=%s] Session is closed", s.ID(), s.name, s.sessionToken())
+			GetLogger().Errorf("[Id:%d, name=%s, session=%s] Session is closed", s.ID(), s.name, s.sessionToken())
 			return
 		}
 		s.listener.OnMessage(s, pkg)
@@ -589,13 +589,13 @@ func (s *session) handlePackage() {
 			const size = 64 << 10
 			rBuf := make([]byte, size)
 			rBuf = rBuf[:runtime.Stack(rBuf, false)]
-			log.Errorf("[session.handlePackage] panic session %s: err=%s\n%s", s.sessionToken(), r, rBuf)
+			GetLogger().Errorf("[session.handlePackage] panic session %s: err=%s\n%s", s.sessionToken(), r, rBuf)
 		}
 		grNum := s.grNum.Add(-1)
-		log.Infof("%s, [session.handlePackage] gr will exit now, left gr num %d", s.sessionToken(), grNum)
+		GetLogger().Infof("%s, [session.handlePackage] gr will exit now, left gr num %d", s.sessionToken(), grNum)
 		s.stop()
 		if err != nil {
-			log.Errorf("%s, [session.handlePackage] error:%+v", s.sessionToken(), perrors.WithStack(err))
+			GetLogger().Errorf("%s, [session.handlePackage] error:%+v", s.sessionToken(), perrors.WithStack(err))
 			if s != nil && s.listener != nil {
 				s.listener.OnError(s, err)
 			}
@@ -609,7 +609,7 @@ func (s *session) handlePackage() {
 	if _, ok := s.Connection.(*gettyTCPConn); ok {
 		if s.reader == nil {
 			errStr := fmt.Sprintf("session{name:%s, conn:%#v, reader:%#v}", s.name, s.Connection, s.reader)
-			log.Error(errStr)
+			GetLogger().Error(errStr)
 			panic(errStr)
 		}
 
@@ -649,7 +649,7 @@ func (s *session) handleTCPPackage() error {
 		ctx, cancel := context.WithTimeout(context.Background(), tlsHandshaketime)
 		defer cancel()
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
-			log.Errorf("[tlsConn.HandshakeContext] = error:%+v", err)
+			GetLogger().Errorf("[tlsConn.HandshakeContext] = error:%+v", err)
 			return perrors.Wrap(err, "tlsConn.HandshakeContext")
 		}
 	}
@@ -666,7 +666,7 @@ func (s *session) handleTCPPackage() error {
 					break
 				}
 				if perrors.Cause(err) == io.EOF {
-					log.Infof("%s, session.conn read EOF, client send over, session exit", s.sessionToken())
+					GetLogger().Infof("%s, session.conn read EOF, client send over, session exit", s.sessionToken())
 					//when read EOF, means that the peer has closed the connection, stop to reconnect to maintain the connection pool.
 					s.SetAttribute(ignoreReconnectKey, true)
 					err = nil
@@ -676,18 +676,18 @@ func (s *session) handleTCPPackage() error {
 						// this branch is impossible. Even if it happens, the bufLen will be zero and the error
 						// is io.EOF when getty continues to read the socket.
 						exit = false
-						log.Infof("%s, session.conn read EOF, while the bufLen(%d) is non-zero.", s.sessionToken())
+						GetLogger().Infof("%s, session.conn read EOF, while the bufLen(%d) is non-zero.", s.sessionToken())
 					}
 					break
 				}
-				log.Errorf("%s, [session.conn.read] = error:%+v", s.sessionToken(), perrors.WithStack(err))
+				GetLogger().Errorf("%s, [session.conn.read] = error:%+v", s.sessionToken(), perrors.WithStack(err))
 				exit = true
 			}
 			break
 		}
 		if bufLen != 0 {
 			if _, err = pktBuf.WriteNextEnd(bufLen); err != nil {
-				log.Errorf("%s, [pktBuf.WriteNextEnd] = error:%+v", s.sessionToken(), perrors.WithStack(err))
+				GetLogger().Errorf("%s, [pktBuf.WriteNextEnd] = error:%+v", s.sessionToken(), perrors.WithStack(err))
 				exit = true
 			}
 			for pktBuf.Len() > 0 {
@@ -698,7 +698,7 @@ func (s *session) handleTCPPackage() error {
 				}
 				// handle case 1
 				if err != nil {
-					log.Warnf("%s, [session.handleTCPPackage] = len{%d}, error:%+v",
+					GetLogger().Warnf("%s, [session.handleTCPPackage] = len{%d}, error:%+v",
 						s.sessionToken(), pkgLen, perrors.WithStack(err))
 					exit = true
 					break
@@ -761,39 +761,39 @@ func (s *session) handleUDPPackage() error {
 	for !s.IsClosed() {
 
 		bufLen, addr, err = conn.recv(buf)
-		log.Debugf("conn.read() = bufLen:%d, addr:%#v, err:%+v", bufLen, addr, perrors.WithStack(err))
+		GetLogger().Debugf("conn.read() = bufLen:%d, addr:%#v, err:%+v", bufLen, addr, perrors.WithStack(err))
 		if netError, ok = perrors.Cause(err).(net.Error); ok && netError.Timeout() {
 			continue
 		}
 		if err != nil {
-			log.Errorf("%s, [session.handleUDPPackage] = len:%d, error:%+v",
+			GetLogger().Errorf("%s, [session.handleUDPPackage] = len:%d, error:%+v",
 				s.sessionToken(), bufLen, perrors.WithStack(err))
 			err = perrors.Wrapf(err, "conn.read()")
 			break
 		}
 
 		if bufLen == 0 {
-			log.Errorf("conn.read() = bufLen:%d, addr:%s, err:%+v", bufLen, addr, perrors.WithStack(err))
+			GetLogger().Errorf("conn.read() = bufLen:%d, addr:%s, err:%+v", bufLen, addr, perrors.WithStack(err))
 			continue
 		}
 
 		if bufLen == len(connectPingPackage) && bytes.Equal(connectPingPackage, buf[:bufLen]) {
-			log.Infof("got %s connectPingPackage", addr)
+			GetLogger().Infof("got %s connectPingPackage", addr)
 			continue
 		}
 
 		pkg, pkgLen, err = s.reader.Read(s, buf[:bufLen])
-		log.Debugf("s.reader.Read() = pkg:%#v, pkgLen:%d, err:%+v", pkg, pkgLen, perrors.WithStack(err))
+		GetLogger().Debugf("s.reader.Read() = pkg:%#v, pkgLen:%d, err:%+v", pkg, pkgLen, perrors.WithStack(err))
 		if err == nil && s.maxMsgLen > 0 && bufLen > int(s.maxMsgLen) {
 			err = perrors.Errorf("Message Too Long, bufLen %d, session max message len %d", bufLen, s.maxMsgLen)
 		}
 		if err != nil {
-			log.Warnf("%s, [session.handleUDPPackage] = len:%d, error:%+v",
+			GetLogger().Warnf("%s, [session.handleUDPPackage] = len:%d, error:%+v",
 				s.sessionToken(), pkgLen, perrors.WithStack(err))
 			continue
 		}
 		if pkgLen == 0 {
-			log.Errorf("s.reader.Read() = pkg:%#v, pkgLen:%d, err:%+v", pkg, pkgLen, perrors.WithStack(err))
+			GetLogger().Errorf("s.reader.Read() = pkg:%#v, pkgLen:%d, err:%+v", pkg, pkgLen, perrors.WithStack(err))
 			continue
 		}
 
@@ -823,7 +823,7 @@ func (s *session) handleWSPackage() error {
 			continue
 		}
 		if err != nil {
-			log.Warnf("%s, [session.handleWSPackage] = error:%+v",
+			GetLogger().Warnf("%s, [session.handleWSPackage] = error:%+v",
 				s.sessionToken(), perrors.WithStack(err))
 			return perrors.WithStack(err)
 		}
@@ -834,7 +834,7 @@ func (s *session) handleWSPackage() error {
 				err = perrors.Errorf("Message Too Long, length %d, session max message len %d", length, s.maxMsgLen)
 			}
 			if err != nil {
-				log.Warnf("%s, [session.handleWSPackage] = len:%d, error:%+v",
+				GetLogger().Warnf("%s, [session.handleWSPackage] = len:%d, error:%+v",
 					s.sessionToken(), length, perrors.WithStack(err))
 				continue
 			}
@@ -859,10 +859,10 @@ func (s *session) stop() {
 			now := time.Now()
 			if conn := s.Conn(); conn != nil {
 				if err := conn.SetReadDeadline(now.Add(s.ReadTimeout())); err != nil {
-					log.Warnf("failed to set read deadline: %+v", err)
+					GetLogger().Warnf("failed to set read deadline: %+v", err)
 				}
 				if err := conn.SetWriteDeadline(now.Add(s.WriteTimeout())); err != nil {
-					log.Warnf("failed to set write deadline: %+v", err)
+					GetLogger().Warnf("failed to set write deadline: %+v", err)
 				}
 			}
 			close(s.done)
@@ -897,7 +897,7 @@ func (s *session) gc() {
 // or (session)handleLoop automatically. It's thread safe.
 func (s *session) Close() {
 	s.stop()
-	log.Infof("%s closed now. its current gr num is %d", s.sessionToken(), s.grNum.Load())
+	GetLogger().Infof("%s closed now. its current gr num is %d", s.sessionToken(), s.grNum.Load())
 }
 
 // GetActive return connection's time
