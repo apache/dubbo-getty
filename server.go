@@ -152,7 +152,7 @@ func (s *server) stop() {
 				if err := s.server.Shutdown(ctx); err != nil {
 					// if the log output is "shutdown ctx: context deadline exceeded"， it means that
 					// there are still some active connections.
-					log.Errorf("server shutdown ctx:%s error:%v", ctx, err)
+					GetLogger().Errorf("server shutdown ctx:%s error:%v", ctx, err)
 				}
 				cancel()
 			}
@@ -264,7 +264,7 @@ func (s *server) accept(newSession NewSessionCallback) (Session, error) {
 		return nil, perrors.WithStack(err)
 	}
 	if gxnet.IsSameAddr(conn.RemoteAddr(), conn.LocalAddr()) {
-		log.Warnf("conn.localAddr{%s} == conn.RemoteAddr", conn.LocalAddr().String(), conn.RemoteAddr().String())
+		GetLogger().Warnf("conn.localAddr{%s} == conn.RemoteAddr", conn.LocalAddr().String(), conn.RemoteAddr().String())
 		return nil, perrors.WithStack(errSelfConnect)
 	}
 
@@ -289,7 +289,7 @@ func (s *server) runTCPEventLoop(newSession NewSessionCallback) {
 		)
 		for {
 			if s.IsClosed() {
-				log.Infof("server{%s} stop accepting client connect request.", s.addr)
+				GetLogger().Infof("server{%s} stop accepting client connect request.", s.addr)
 				return
 			}
 			if delay != 0 {
@@ -312,7 +312,7 @@ func (s *server) runTCPEventLoop(newSession NewSessionCallback) {
 					}
 					continue
 				}
-				log.Warnf("server{%s}.Accept() = err {%+v}", s.addr, perrors.WithStack(err))
+				GetLogger().Warnf("server{%s}.Accept() = err {%+v}", s.addr, perrors.WithStack(err))
 				continue
 			}
 			delay = 0
@@ -370,18 +370,18 @@ func (s *wsHandler) serveWSRequest(w http.ResponseWriter, r *http.Request) {
 
 	if s.server.IsClosed() {
 		http.Error(w, "HTTP server is closed(code:500-11).", 500)
-		log.Warnf("server{%s} stop acceptting client connect request.", s.server.addr)
+		GetLogger().Warnf("server{%s} stop acceptting client connect request.", s.server.addr)
 		return
 	}
 
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Warnf("upgrader.Upgrader(http.Request{%#v}) = error:%+v", r, err)
+		GetLogger().Warnf("upgrader.Upgrader(http.Request{%#v}) = error:%+v", r, err)
 		return
 	}
 	if conn.RemoteAddr().String() == conn.LocalAddr().String() {
 		_ = conn.Close()
-		log.Warnf("conn.localAddr{%s} == conn.RemoteAddr", conn.LocalAddr().String(), conn.RemoteAddr().String())
+		GetLogger().Warnf("conn.localAddr{%s} == conn.RemoteAddr", conn.LocalAddr().String(), conn.RemoteAddr().String())
 		return
 	}
 	// conn.SetReadLimit(int64(handler.maxMsgLen))
@@ -389,7 +389,7 @@ func (s *wsHandler) serveWSRequest(w http.ResponseWriter, r *http.Request) {
 	err = s.newSession(ss)
 	if err != nil {
 		_ = conn.Close()
-		log.Warnf("server{%s}.newSession(ss{%#v}) = err {%s}", s.server.addr, ss, err)
+		GetLogger().Warnf("server{%s}.newSession(ss{%#v}) = err {%s}", s.server.addr, ss, err)
 		return
 	}
 	if ss.(*session).maxMsgLen > 0 {
@@ -432,7 +432,7 @@ func (s *server) runWSEventLoop(newSession NewSessionCallback) {
 }
 
 func (s *server) logHTTPServeClose(err error) {
-	log.Infof("http.server.Serve(addr{%s}) closed: %v", s.addr, err)
+	GetLogger().Infof("http.server.Serve(addr{%s}) closed: %v", s.addr, err)
 }
 
 func isHTTPServeCloseError(err error) bool {
@@ -441,7 +441,7 @@ func isHTTPServeCloseError(err error) bool {
 }
 
 func (s *server) logHTTPServeError(err error) {
-	log.Errorf("http.server.Serve(addr{%s}) = err:%+v", s.addr, perrors.WithStack(err))
+	GetLogger().Errorf("http.server.Serve(addr{%s}) = err:%+v", s.addr, perrors.WithStack(err))
 }
 
 // serve websocket client request

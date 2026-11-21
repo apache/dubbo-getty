@@ -123,7 +123,7 @@ func (c *gettyConn) GetActive() time.Time {
 
 // removed unused methods
 
-func (c gettyConn) ReadTimeout() time.Duration {
+func (c *gettyConn) ReadTimeout() time.Duration {
 	return c.rTimeout.Load()
 }
 
@@ -146,7 +146,7 @@ func (c *gettyConn) SetReadTimeout(rTimeout time.Duration) {
 	}
 }
 
-func (c gettyConn) WriteTimeout() time.Duration {
+func (c *gettyConn) WriteTimeout() time.Duration {
 	return c.wTimeout.Load()
 }
 
@@ -171,6 +171,11 @@ func (c *gettyConn) SetWriteTimeout(wTimeout time.Duration) {
 
 type gettyTCPConn struct {
 	gettyConn
+	// stream protects conn, reader, writer, and compress so
+	// SetCompressType can run concurrently with recv/Send/CloseConn.
+	// I/O itself runs outside the lock: CloseConn must be able to
+	// close the socket while a Read is blocked.
+	stream sync.RWMutex
 	reader io.Reader
 	writer io.Writer
 	conn   net.Conn
@@ -231,6 +236,11 @@ func (t *writeFlusher) Write(p []byte) (int, error) {
 
 // SetCompressType set compress type(tcp: zip/snappy, websocket:zip)
 func (t *gettyTCPConn) SetCompressType(c CompressType) {
+	t.stream.Lock()
+	defer t.stream.Unlock()
+	if t.conn == nil {
+		return
+	}
 	switch c {
 	case CompressNone, CompressZip, CompressBestSpeed, CompressBestCompression, CompressHuffman:
 		ioReader := io.Reader(t.conn)
@@ -255,6 +265,21 @@ func (t *gettyTCPConn) SetCompressType(c CompressType) {
 	t.compress = c
 }
 
+// getCompressType returns the current compression mode. Tests must use this
+// rather than reading t.compress while the read loop may still be running.
+func (t *gettyTCPConn) getCompressType() CompressType {
+	t.stream.RLock()
+	c := t.compress
+	t.stream.RUnlock()
+	return c
+}
+
+func (t *gettyTCPConn) snapshotStream() (net.Conn, io.Reader, io.Writer, CompressType) {
+	t.stream.RLock()
+	defer t.stream.RUnlock()
+	return t.conn, t.reader, t.writer, t.compress
+}
+
 // tcp connection read
 func (t *gettyTCPConn) recv(p []byte) (int, error) {
 	var (
@@ -263,19 +288,24 @@ func (t *gettyTCPConn) recv(p []byte) (int, error) {
 		length      int
 	)
 
+	conn, reader, _, compress := t.snapshotStream()
+	if conn == nil || reader == nil {
+		return 0, io.EOF
+	}
+
 	// set read timeout deadline
-	if t.compress == CompressNone && t.rTimeout.Load() > 0 {
+	if compress == CompressNone && t.rTimeout.Load() > 0 {
 		// Set Deadline every time, since golang has fixed the performance issue
 		// See https://github.com/golang/go/issues/15133#issuecomment-271571395 for details
 		currentTime = time.Now()
-		if err = t.conn.SetReadDeadline(currentTime.Add(t.rTimeout.Load())); err != nil {
+		if err = conn.SetReadDeadline(currentTime.Add(t.rTimeout.Load())); err != nil {
 			// just a timeout error
 			return 0, perrors.WithStack(err)
 		}
 		t.rLastDeadline.Store(currentTime)
 	}
 
-	length, err = t.reader.Read(p)
+	length, err = reader.Read(p)
 	t.readBytes.Add(uint32(length))
 	return length, perrors.WithStack(err)
 }
@@ -291,11 +321,16 @@ func (t *gettyTCPConn) Send(pkg any) (int, error) {
 		lg          int64
 	)
 
-	if t.compress == CompressNone && t.wTimeout.Load() > 0 {
+	conn, _, writer, compress := t.snapshotStream()
+	if conn == nil || writer == nil {
+		return 0, io.EOF
+	}
+
+	if compress == CompressNone && t.wTimeout.Load() > 0 {
 		// Set Deadline every time, since golang has fixed the performance issue
 		// See https://github.com/golang/go/issues/15133#issuecomment-271571395 for details
 		currentTime = time.Now()
-		if err = t.conn.SetWriteDeadline(currentTime.Add(t.wTimeout.Load())); err != nil {
+		if err = conn.SetWriteDeadline(currentTime.Add(t.wTimeout.Load())); err != nil {
 			return 0, perrors.WithStack(err)
 		}
 		t.wLastDeadline.Store(currentTime)
@@ -303,24 +338,24 @@ func (t *gettyTCPConn) Send(pkg any) (int, error) {
 
 	if buffers, ok := pkg.([][]byte); ok {
 		netBuf := net.Buffers(buffers)
-		lg, err = netBuf.WriteTo(t.conn)
+		lg, err = netBuf.WriteTo(conn)
 		if err == nil {
 			t.writeBytes.Add((uint32)(lg))
 			t.writePkgNum.Add((uint32)(len(buffers)))
 		}
-		log.Debugf("localAddr: %s, remoteAddr:%s, now:%s, length:%d, err:%s",
-			t.conn.LocalAddr(), t.conn.RemoteAddr(), currentTime, length, err)
+		GetLogger().Debugf("localAddr: %s, remoteAddr:%s, now:%s, length:%d, err:%s",
+			conn.LocalAddr(), conn.RemoteAddr(), currentTime, length, err)
 		return int(lg), perrors.WithStack(err)
 	}
 
 	if p, ok = pkg.([]byte); ok {
-		length, err = t.writer.Write(p)
+		length, err = writer.Write(p)
 		if err == nil {
 			t.writeBytes.Add((uint32)(len(p)))
 			t.writePkgNum.Add(1)
 		}
-		log.Debugf("localAddr: %s, remoteAddr:%s, now:%s, length:%d, err:%v",
-			t.conn.LocalAddr(), t.conn.RemoteAddr(), currentTime, length, err)
+		GetLogger().Debugf("localAddr: %s, remoteAddr:%s, now:%s, length:%d, err:%v",
+			conn.LocalAddr(), conn.RemoteAddr(), currentTime, length, err)
 		return length, perrors.WithStack(err)
 	}
 
@@ -333,19 +368,24 @@ func (t *gettyTCPConn) CloseConn(waitSec int) {
 	// tcpConn.SetLinger(0)
 	// }
 
-	if t.conn != nil {
-		if writer, ok := t.writer.(*snappy.Writer); ok {
-			if err := writer.Close(); err != nil {
-				log.Errorf("snappy.Writer.Close() = error:%+v", err)
+	t.stream.Lock()
+	conn := t.conn
+	writer := t.writer
+	t.conn = nil
+	t.stream.Unlock()
+
+	if conn != nil {
+		if sw, ok := writer.(*snappy.Writer); ok {
+			if err := sw.Close(); err != nil {
+				GetLogger().Errorf("snappy.Writer.Close() = error:%+v", err)
 			}
 		}
-		if conn, ok := t.conn.(*net.TCPConn); ok {
-			_ = conn.SetLinger(waitSec)
-			_ = conn.Close()
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			_ = tcpConn.SetLinger(waitSec)
+			_ = tcpConn.Close()
 		} else {
-			_ = t.conn.(*tls.Conn).Close()
+			_ = conn.(*tls.Conn).Close()
 		}
-		t.conn = nil
 	}
 }
 
@@ -420,7 +460,7 @@ func (u *gettyUDPConn) recv(p []byte) (int, *net.UDPAddr, error) {
 	}
 
 	length, addr, err := u.conn.ReadFromUDP(p) // connected udp also can get return @addr
-	log.Debugf("ReadFromUDP(p:%d) = {length:%d, peerAddr:%s, error:%v}", len(p), length, addr, err)
+	GetLogger().Debugf("ReadFromUDP(p:%d) = {length:%d, peerAddr:%s, error:%v}", len(p), length, addr, err)
 	if err == nil {
 		u.readBytes.Add(uint32(length))
 	}
@@ -467,7 +507,7 @@ func (u *gettyUDPConn) Send(udpCtx any) (int, error) {
 		u.writeBytes.Add((uint32)(len(buf)))
 		u.writePkgNum.Add(1)
 	}
-	log.Debugf("WriteMsgUDP(peerAddr:%s) = {length:%d, error:%v}", peerAddr, length, err)
+	GetLogger().Debugf("WriteMsgUDP(peerAddr:%s) = {length:%d, error:%v}", peerAddr, length, err)
 
 	return length, perrors.WithStack(err)
 }
@@ -568,7 +608,7 @@ func (w *gettyWSConn) recv() ([]byte, error) {
 		w.readBytes.Add((uint32)(len(b)))
 	} else {
 		if websocket.IsUnexpectedCloseError(e, websocket.CloseGoingAway) {
-			log.Warnf("websocket unexpected CloseConn error: %v", e)
+			GetLogger().Warnf("websocket unexpected CloseConn error: %v", e)
 		}
 	}
 
