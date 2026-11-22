@@ -569,7 +569,7 @@ func TestTCPClient(t *testing.T) {
 	ss := msgHandler.array[0]
 	ss.SetCompressType(CompressNone)
 	conn := ss.(*session).Connection.(*gettyTCPConn)
-	assert.True(t, conn.compress == CompressNone)
+	assert.True(t, conn.getCompressType() == CompressNone)
 	beforeWriteBytes := conn.writeBytes
 	beforeWritePkgNum := conn.writePkgNum
 	l, err := conn.Send([]byte("hello"))
@@ -606,7 +606,7 @@ func TestTCPClient(t *testing.T) {
 	beforeWriteBytes.Add(10)
 	assert.Equal(t, beforeWritePkgNum, conn.writePkgNum)
 	assert.Equal(t, beforeWriteBytes, conn.writeBytes)
-	assert.True(t, conn.compress == CompressSnappy)
+	assert.True(t, conn.getCompressType() == CompressSnappy)
 
 	batchSize := 128 * 1023
 	source := make([]byte, batchSize)

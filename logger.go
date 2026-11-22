@@ -18,6 +18,10 @@
 package getty
 
 import (
+	"sync/atomic"
+)
+
+import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -58,9 +62,29 @@ const (
 	LoggerLevelFatal = LoggerLevel(zapcore.FatalLevel)
 )
 
+// loggerHolder atomically stores the process logger so SetLogger can
+// be called without racing in-flight log calls. It deliberately does not
+// implement Logger: call sites log through GetLogger().Xxx(...) so the
+// caller frame recorded by the underlying logger stays accurate.
+type loggerHolder struct {
+	inner atomic.Value // Logger
+}
+
+type loggerBox struct {
+	logger Logger
+}
+
+func (l *loggerHolder) current() Logger {
+	v := l.inner.Load()
+	if v == nil {
+		return nil
+	}
+	return v.(loggerBox).logger
+}
+
 var (
-	log       Logger
-	zapLogger *zap.Logger
+	loggerStore = &loggerHolder{}
+	zapLogger   *zap.Logger
 
 	zapLoggerConfig        = zap.NewDevelopmentConfig()
 	zapLoggerEncoderConfig = zapcore.EncoderConfig{
@@ -80,7 +104,7 @@ var (
 func init() {
 	zapLoggerConfig.EncoderConfig = zapLoggerEncoderConfig
 	zapLogger, _ = zapLoggerConfig.Build()
-	log = zapLogger.Sugar()
+	loggerStore.inner.Store(loggerBox{Logger(zapLogger.Sugar())})
 
 	// todo: flushes buffer when redirect log to file.
 	// var exitSignal = make(chan os.Signal)
@@ -99,12 +123,15 @@ func init() {
 
 // SetLogger customize yourself logger.
 func SetLogger(logger Logger) {
-	log = logger
+	if logger == nil {
+		return
+	}
+	loggerStore.inner.Store(loggerBox{logger})
 }
 
 // GetLogger get getty logger
 func GetLogger() Logger {
-	return log
+	return loggerStore.current()
 }
 
 // SetLoggerLevel set logger level
@@ -115,7 +142,7 @@ func SetLoggerLevel(level LoggerLevel) error {
 	if err != nil {
 		return err
 	}
-	log = zapLogger.Sugar()
+	loggerStore.inner.Store(loggerBox{Logger(zapLogger.Sugar())})
 	return nil
 }
 
@@ -129,6 +156,6 @@ func SetLoggerCallerDisable() error {
 	if err != nil {
 		return err
 	}
-	log = zapLogger.Sugar()
+	loggerStore.inner.Store(loggerBox{Logger(zapLogger.Sugar())})
 	return nil
 }
